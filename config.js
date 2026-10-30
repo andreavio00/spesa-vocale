@@ -1,2 +1,2 @@
-// Inserisci qui l'indirizzo del Worker Cloudflare dopo il deploy.
-window.SPESA_CONFIG = { API_URL: "https://INSERISCI-QUI-IL-TUO-WORKER.workers.dev" };
+// Worker Cloudflare per le richieste Bring!
+window.SPESA_CONFIG = { API_URL: "https://spesa-vocale-api.andrea-vio.workers.dev" };
