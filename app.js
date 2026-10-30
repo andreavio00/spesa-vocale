@@ -20,7 +20,7 @@ if(Speech){
   recognition.interimResults=true;
   let dictationActive=false;
   let prefixText="";
-  let finalText=[];
+  let finalText="";
   let silenceTimer=null;
 
   recognition.onresult=e=>{
@@ -28,7 +28,7 @@ if(Speech){
       const result=e.results[i];
       if(!result.isFinal)continue;
       const text=result[0].transcript.trim();
-      if(text)finalText.push(text);
+      if(text)finalText+=(finalText?" ":"")+text;
     }
 
     if(dictationActive){
@@ -53,7 +53,7 @@ if(Speech){
 
   recognition.onend=()=>{
     clearTimeout(silenceTimer);
-    $("rawText").value=[prefixText,...finalText].filter(Boolean).join(", ").trim();
+    $("rawText").value=[prefixText,finalText].filter(Boolean).join(" ").trim();
     dictationActive=false;
     $("record").classList.remove("listening");
     $("record").textContent="🎙️ Tocca per dettare";
@@ -69,7 +69,7 @@ if(Speech){
     }
     clearTimeout(silenceTimer);
     prefixText=$("rawText").value.trim();
-    finalText=[];
+    finalText="";
     $("speechStatus").textContent="Ti ascolto…";
     $("record").classList.add("listening");
     $("record").textContent="■ Ferma dettatura";
