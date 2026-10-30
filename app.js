@@ -15,57 +15,44 @@ const Speech=window.SpeechRecognition||window.webkitSpeechRecognition;
 if(Speech){
   recognition=new Speech();
   recognition.lang="it-IT";
-  recognition.continuous=true;
-  recognition.interimResults=true;
+  recognition.continuous=false;
+  recognition.interimResults=false;
   let dictationActive=false;
-  let prefixText="";
-  let sessionFinalText="";
+  let baseText="";
   recognition.onresult=e=>{
-    const finalParts=[],interimParts=[];
-    for(let i=0;i<e.results.length;i++){
-      const t=e.results[i][0].transcript.trim();
-      if(!t)continue;
-      if(e.results[i].isFinal)finalParts.push(t);
-      else interimParts.push(t);
+    const parts=[];
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      if(e.results[i].isFinal){
+        const t=e.results[i][0].transcript.trim();
+        if(t)parts.push(t);
+      }
     }
-    sessionFinalText=finalParts.join(" ");
-    const visible=[prefixText.trim(),sessionFinalText,interimParts.join(" ")].filter(Boolean).join(" ");
-    $("rawText").value=visible;
+    const spoken=parts.join(" ").trim();
+    $("rawText").value=[baseText,spoken].filter(Boolean).join(" ");
   };
   recognition.onerror=e=>{
+    dictationActive=false;
     if(e.error==="not-allowed"||e.error==="service-not-allowed"){
-      dictationActive=false;
       $("speechStatus").textContent="Microfono bloccato: autorizza il microfono per questo sito nelle impostazioni di Chrome.";
     }else if(e.error!=="no-speech"&&e.error!=="aborted"){
       $("speechStatus").textContent="Dettatura non disponibile ("+e.error+"). Puoi usare il microfono di Gboard nel campo di testo.";
     }
-    if(!dictationActive){
-      $("record").classList.remove("listening");
-      $("record").textContent="🎙️ Tocca per dettare";
-    }
+    $("record").classList.remove("listening");
+    $("record").textContent="🎙️ Tocca per dettare";
   };
   recognition.onend=()=>{
-    if(dictationActive){
-      prefixText=[$("rawText").value.trim()].filter(Boolean).join(" ")+" ";
-      sessionFinalText="";
-      try{
-        setTimeout(()=>{if(dictationActive){try{recognition.start();}catch(e){}}},300);
-      }catch(e){}
-      return;
-    }
+    dictationActive=false;
     $("record").classList.remove("listening");
     $("record").textContent="🎙️ Tocca per dettare";
     if($("speechStatus").textContent==="Ti ascolto…")$("speechStatus").textContent="Dettatura terminata. Premi “Prepara i prodotti”.";
   };
   $("record").onclick=()=>{
     if(dictationActive){
-      dictationActive=false;
       recognition.stop();
       return;
     }
     try{
-      prefixText=$("rawText").value?$("rawText").value.trim()+" ":"";
-      sessionFinalText="";
+      baseText=$("rawText").value.trim();
       $("speechStatus").textContent="Ti ascolto…";
       $("record").classList.add("listening");
       $("record").textContent="■ Ferma dettatura";
