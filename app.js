@@ -22,8 +22,10 @@ if(Speech){
   let prefixText="";
   let spokenResults=[];
   let lastFinalText="";
+  let silenceTimer=null;
 
   recognition.onresult=e=>{
+    clearTimeout(silenceTimer);
     for(let i=e.resultIndex;i<e.results.length;i++){
       const result=e.results[i];
       if(!result.isFinal) continue;
@@ -39,6 +41,15 @@ if(Speech){
     }
 
     $("rawText").value=[prefixText,...spokenResults].filter(Boolean).join(", ").trim();
+
+    if(dictationActive){
+      silenceTimer=setTimeout(()=>{
+        if(dictationActive){
+          dictationActive=false;
+          try{recognition.stop();}catch(e){}
+        }
+      },2000);
+    }
   };
 
   recognition.onerror=e=>{
@@ -51,6 +62,7 @@ if(Speech){
   };
 
   recognition.onend=()=>{
+    clearTimeout(silenceTimer);
     dictationActive=false;
     $("record").classList.remove("listening");
     $("record").textContent="🎙️ Tocca per dettare";
@@ -59,10 +71,12 @@ if(Speech){
 
   $("record").onclick=()=>{
     if(dictationActive){
+      clearTimeout(silenceTimer);
       dictationActive=false;
       try{recognition.stop();}catch(e){}
       return;
     }
+    clearTimeout(silenceTimer);
     prefixText=$("rawText").value.trim();
     spokenResults=[];
     lastFinalText="";
