@@ -54,7 +54,6 @@ if(Speech){
       return;
     }
     prefixText=$("rawText").value.trim();
-    spokenResults=[];
     $("speechStatus").textContent="Ti ascolto…";
     $("record").classList.add("listening");
     $("record").textContent="■ Ferma dettatura";
