@@ -14,118 +14,64 @@ $("listSelect").onchange=updateCount;
 $("send").onclick=async()=>{const c=credentials(),listId=$("listSelect").value;const clean=products.map(x=>x.trim()).filter(Boolean);if(!c.email||!c.password||!listId||!clean.length)return;$("send").disabled=true;$("sendStatus").textContent="Invio a Bring!…";try{const d=await request("/api/add",{...c,listId,items:clean.map(name=>({name}))});$("sendStatus").textContent="Aggiunti "+(d.added??clean.length)+" prodotti alla lista!";products=[];$("rawText").value="";render();openBringApp();}catch(e){$("sendStatus").textContent=e.message;}finally{updateCount();}};
 const Speech=window.SpeechRecognition||window.webkitSpeechRecognition;
 if(Speech){
+  recognition=new Speech();
+  recognition.lang="it-IT";
+  recognition.continuous=true;
+  recognition.interimResults=true;
   let dictationActive=false;
   let prefixText="";
-  let sessionResults=[];
-  let silenceTimer=null;
-  let recognitionEnded=false;
-  let pauseElapsed=false;
+  let spokenResults=[];
 
-  function commitSession(){
-    const finalText=sessionResults.filter(r=>r&&r.final).map(r=>r.text).filter(Boolean).join(" ").trim();
-    if(finalText)prefixText+=(prefixText?"\n":"")+finalText;
-    $("rawText").value=prefixText;
-    sessionResults=[];
+  function showTranscript(){
+    const words=spokenResults.map(r=>r&&r.text?r.text:"").filter(Boolean);
+    $("rawText").value=[prefixText,...words].filter(Boolean).join(" ").trim();
   }
 
-  function startRecognition(){
-    if(!dictationActive)return;
-    recognitionEnded=false;
-    pauseElapsed=false;
-    sessionResults=[];
-    recognition=new Speech();
-    recognition.lang="it-IT";
-    recognition.continuous=true;
-    recognition.interimResults=true;
-
-    recognition.onresult=e=>{
-      for(let i=e.resultIndex;i<e.results.length;i++){
-        const result=e.results[i];
-        sessionResults[i]={text:result[0].transcript.trim(),final:result.isFinal};
-      }
-      const finalText=sessionResults.filter(r=>r&&r.final).map(r=>r.text).filter(Boolean).join(" ");
-      const interimText=sessionResults.filter(r=>r&&!r.final).map(r=>r.text).filter(Boolean).join(" ");
-      $("rawText").value=prefixText+[finalText,interimText].filter(Boolean).join(" ");
-
-      clearTimeout(silenceTimer);
-      silenceTimer=setTimeout(()=>{
-        silenceTimer=null;
-        pauseElapsed=true;
-        if(recognitionEnded){
-          if(dictationActive)startRecognition();
-        }else{
-          try{recognition.stop();}catch(e){}
-        }
-      },1500);
-    };
-
-    recognition.onerror=e=>{
-      if(e.error==="not-allowed"||e.error==="service-not-allowed"){
-        dictationActive=false;
-        clearTimeout(silenceTimer);
-        $("speechStatus").textContent="Microfono bloccato: autorizza il microfono per questo sito nelle impostazioni di Chrome.";
-      }else if(e.error!=="no-speech"&&e.error!=="aborted"){
-        $("speechStatus").textContent="Dettatura non disponibile ("+e.error+"). Puoi usare il microfono di Gboard nel campo di testo.";
-      }
-      if(!dictationActive){
-        $("record").classList.remove("listening");
-        $("record").textContent="🎙️ Tocca per dettare";
-      }
-    };
-
-    recognition.onend=()=>{
-      recognitionEnded=true;
-      commitSession();
-      if(dictationActive){
-        if(pauseElapsed){
-          startRecognition();
-        }else if(!silenceTimer){
-          silenceTimer=setTimeout(()=>{
-            silenceTimer=null;
-            pauseElapsed=true;
-            if(dictationActive)startRecognition();
-          },1500);
-        }
-        return;
-      }
-      clearTimeout(silenceTimer);
-      $("record").classList.remove("listening");
-      $("record").textContent="🎙️ Tocca per dettare";
-      if($("speechStatus").textContent==="Ti ascolto…")$("speechStatus").textContent="Dettatura terminata. Premi “Prepara i prodotti”.";
-    };
-
-    try{
-      recognition.start();
-    }catch(e){
-      dictationActive=false;
-      clearTimeout(silenceTimer);
-      $("record").classList.remove("listening");
-      $("record").textContent="🎙️ Tocca per dettare";
-      $("speechStatus").textContent="Non riesco ad avviare il microfono. Controlla i permessi di Chrome oppure usa Gboard.";
+  recognition.onresult=e=>{
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const result=e.results[i];
+      const text=result[0].transcript.trim();
+      spokenResults[i]={text,final:result.isFinal};
     }
-  }
+    showTranscript();
+  };
+
+  recognition.onerror=e=>{
+    if(e.error==="not-allowed"||e.error==="service-not-allowed"){
+      dictationActive=false;
+      $("speechStatus").textContent="Microfono bloccato: autorizza il microfono per questo sito nelle impostazioni di Chrome.";
+    }else if(e.error!=="no-speech"&&e.error!=="aborted"){
+      $("speechStatus").textContent="Dettatura non disponibile ("+e.error+"). Puoi usare il microfono di Gboard nel campo di testo.";
+    }
+  };
+
+  recognition.onend=()=>{
+    dictationActive=false;
+    $("record").classList.remove("listening");
+    $("record").textContent="🎙️ Tocca per dettare";
+    if($("speechStatus").textContent==="Ti ascolto…")$("speechStatus").textContent="Dettatura terminata. Premi “Prepara i prodotti”.";
+  };
 
   $("record").onclick=()=>{
     if(dictationActive){
       dictationActive=false;
-      clearTimeout(silenceTimer);
-      silenceTimer=null;
-      if(recognitionEnded){
-        $("record").classList.remove("listening");
-        $("record").textContent="🎙️ Tocca per dettare";
-        $("speechStatus").textContent="Dettatura terminata. Premi “Prepara i prodotti”.";
-      }else{
-        try{recognition?.stop();}catch(e){}
-      }
+      try{recognition.stop();}catch(e){}
       return;
     }
     prefixText=$("rawText").value.trim();
-    sessionResults=[];
+    spokenResults=[];
     $("speechStatus").textContent="Ti ascolto…";
     $("record").classList.add("listening");
     $("record").textContent="■ Ferma dettatura";
     dictationActive=true;
-    startRecognition();
+    try{
+      recognition.start();
+    }catch(e){
+      dictationActive=false;
+      $("record").classList.remove("listening");
+      $("record").textContent="🎙️ Tocca per dettare";
+      $("speechStatus").textContent="Non riesco ad avviare il microfono. Controlla i permessi di Chrome oppure usa Gboard.";
+    }
   };
 }else{
   $("record").onclick=()=>{
