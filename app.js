@@ -12,6 +12,53 @@ $("addItem").onclick=()=>{products.push("");render();const inputs=$("items").que
 $("listSelect").onchange=updateCount;
 $("send").onclick=async()=>{const c=credentials(),listId=$("listSelect").value;const clean=products.map(x=>x.trim()).filter(Boolean);if(!c.email||!c.password||!listId||!clean.length)return;$("send").disabled=true;$("sendStatus").textContent="Invio a Bring!…";try{const d=await request("/api/add",{...c,listId,items:clean.map(name=>({name}))});$("sendStatus").textContent="Aggiunti "+(d.added??clean.length)+" prodotti alla lista!";products=[];$("rawText").value="";render();}catch(e){$("sendStatus").textContent=e.message;}finally{updateCount();}};
 const Speech=window.SpeechRecognition||window.webkitSpeechRecognition;
-if(Speech){recognition=new Speech();recognition.lang="it-IT";recognition.continuous=true;recognition.interimResults=true;let prefixText="";recognition.onresult=e=>{const spoken=[];for(let i=0;i<e.results.length;i++){const t=e.results[i][0].transcript.trim();if(t)spoken.push(t);}$("rawText").value=(prefixText+spoken.join(" ")).trim();};recognition.onerror=()=>{$("speechStatus").textContent="Dettatura non disponibile: usa il microfono della tastiera.";};recognition.onend=()=>{$("record").classList.remove("listening");$("record").textContent="🎙️ Tocca per dettare";$("speechStatus").textContent="Dettatura terminata. Premi “Prepara i prodotti”.";};$("record").onclick=()=>{try{if($("record").classList.contains("listening"))recognition.stop();else{prefixText=$("rawText").value?$("rawText").value.trim()+" ":"";recognition.start();$("record").classList.add("listening");$("record").textContent="■ Ferma dettatura";$("speechStatus").textContent="Ti ascolto…";}}catch(e){$("speechStatus").textContent="Usa il microfono della tastiera.";}};}else{$("record").onclick=()=>{$("speechStatus").textContent="Il browser non supporta la dettatura diretta. Tocca il campo e usa il microfono di Gboard."; $("rawText").focus();};}
+if(Speech){
+  recognition=new Speech();
+  recognition.lang="it-IT";
+  recognition.continuous=false;
+  recognition.interimResults=false;
+  let prefixText="";
+  recognition.onresult=e=>{
+    const parts=[];
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      if(e.results[i].isFinal){
+        const t=e.results[i][0].transcript.trim();
+        if(t)parts.push(t);
+      }
+    }
+    if(parts.length)$("rawText").value=(prefixText+parts.join(" ")).trim();
+  };
+  recognition.onerror=e=>{
+    $("speechStatus").textContent=e.error==="not-allowed"?"Microfono bloccato: autorizza il microfono per questo sito nelle impostazioni di Chrome.":"Dettatura non disponibile ("+e.error+"). Puoi usare il microfono di Gboard nel campo di testo.";
+    $("record").classList.remove("listening");
+    $("record").textContent="🎙️ Tocca per dettare";
+  };
+  recognition.onend=()=>{
+    $("record").classList.remove("listening");
+    $("record").textContent="🎙️ Tocca per dettare";
+    if($("speechStatus").textContent==="Ti ascolto…")$("speechStatus").textContent="Dettatura terminata. Premi “Prepara i prodotti”.";
+  };
+  $("record").onclick=()=>{
+    try{
+      if($("record").classList.contains("listening"))recognition.stop();
+      else{
+        prefixText=$("rawText").value?$("rawText").value.trim()+" ":"";
+        $("speechStatus").textContent="Ti ascolto…";
+        $("record").classList.add("listening");
+        $("record").textContent="■ Ferma dettatura";
+        recognition.start();
+      }
+    }catch(e){
+      $("record").classList.remove("listening");
+      $("record").textContent="🎙️ Tocca per dettare";
+      $("speechStatus").textContent="Non riesco ad avviare il microfono. Controlla i permessi di Chrome oppure usa Gboard.";
+    }
+  };
+}else{
+  $("record").onclick=()=>{
+    $("speechStatus").textContent="La dettatura diretta non è supportata qui. Tocca il campo e usa il microfono di Gboard.";
+    $("rawText").focus();
+  };
+}
 if("serviceWorker"in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{});
 render();
