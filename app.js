@@ -16,31 +16,52 @@ const Speech=window.SpeechRecognition||window.webkitSpeechRecognition;
 if(Speech){
   let dictationActive=false;
   let prefixText="";
-  let sessionFinalText="";
-  let restartTimer=null;
+  let sessionResults=[];
+  let silenceTimer=null;
+  let recognitionEnded=false;
+  let pauseElapsed=false;
+
+  function commitSession(){
+    const finalText=sessionResults.filter(r=>r&&r.final).map(r=>r.text).filter(Boolean).join(" ").trim();
+    if(finalText)prefixText+=(prefixText?"\n":"")+finalText;
+    $("rawText").value=prefixText;
+    sessionResults=[];
+  }
 
   function startRecognition(){
     if(!dictationActive)return;
+    recognitionEnded=false;
+    pauseElapsed=false;
+    sessionResults=[];
     recognition=new Speech();
     recognition.lang="it-IT";
     recognition.continuous=true;
     recognition.interimResults=true;
 
     recognition.onresult=e=>{
-      const finalParts=[],interimParts=[];
-      for(let i=0;i<e.results.length;i++){
-        const t=e.results[i][0].transcript.trim();
-        if(!t)continue;
-        if(e.results[i].isFinal)finalParts.push(t);
-        else interimParts.push(t);
+      for(let i=e.resultIndex;i<e.results.length;i++){
+        const result=e.results[i];
+        sessionResults[i]={text:result[0].transcript.trim(),final:result.isFinal};
       }
-      sessionFinalText=finalParts.join(" ");
-      $("rawText").value=prefixText+[sessionFinalText,interimParts.join(" ")].filter(Boolean).join(" ");
+      const finalText=sessionResults.filter(r=>r&&r.final).map(r=>r.text).filter(Boolean).join(" ");
+      const interimText=sessionResults.filter(r=>r&&!r.final).map(r=>r.text).filter(Boolean).join(" ");
+      $("rawText").value=prefixText+[finalText,interimText].filter(Boolean).join(" ");
+
+      clearTimeout(silenceTimer);
+      silenceTimer=setTimeout(()=>{
+        pauseElapsed=true;
+        if(recognitionEnded){
+          if(dictationActive)startRecognition();
+        }else{
+          try{recognition.stop();}catch(e){}
+        }
+      },1500);
     };
 
     recognition.onerror=e=>{
       if(e.error==="not-allowed"||e.error==="service-not-allowed"){
         dictationActive=false;
+        clearTimeout(silenceTimer);
         $("speechStatus").textContent="Microfono bloccato: autorizza il microfono per questo sito nelle impostazioni di Chrome.";
       }else if(e.error!=="no-speech"&&e.error!=="aborted"){
         $("speechStatus").textContent="Dettatura non disponibile ("+e.error+"). Puoi usare il microfono di Gboard nel campo di testo.";
@@ -52,15 +73,15 @@ if(Speech){
     };
 
     recognition.onend=()=>{
-      prefixText=prefixText+sessionFinalText.trim();
-      sessionFinalText="";
+      recognitionEnded=true;
+      commitSession();
       if(dictationActive){
-        prefixText=prefixText.trimEnd()+"\n";
-        $("rawText").value=prefixText;
-        restartTimer=setTimeout(()=>startRecognition(),1500);
+        if(pauseElapsed){
+          startRecognition();
+        }
         return;
       }
-      $("rawText").value=prefixText.trimEnd();
+      clearTimeout(silenceTimer);
       $("record").classList.remove("listening");
       $("record").textContent="🎙️ Tocca per dettare";
       if($("speechStatus").textContent==="Ti ascolto…")$("speechStatus").textContent="Dettatura terminata. Premi “Prepara i prodotti”.";
@@ -70,6 +91,7 @@ if(Speech){
       recognition.start();
     }catch(e){
       dictationActive=false;
+      clearTimeout(silenceTimer);
       $("record").classList.remove("listening");
       $("record").textContent="🎙️ Tocca per dettare";
       $("speechStatus").textContent="Non riesco ad avviare il microfono. Controlla i permessi di Chrome oppure usa Gboard.";
@@ -79,13 +101,12 @@ if(Speech){
   $("record").onclick=()=>{
     if(dictationActive){
       dictationActive=false;
-      clearTimeout(restartTimer);
-      recognition?.stop();
+      clearTimeout(silenceTimer);
+      try{recognition?.stop();}catch(e){}
       return;
     }
     prefixText=$("rawText").value.trim();
-    if(prefixText)prefixText+="\n";
-    sessionFinalText="";
+    sessionResults=[];
     $("speechStatus").textContent="Ti ascolto…";
     $("record").classList.add("listening");
     $("record").textContent="■ Ferma dettatura";
