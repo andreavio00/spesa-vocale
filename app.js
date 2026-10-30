@@ -20,20 +20,15 @@ if(Speech){
   recognition.interimResults=true;
   let dictationActive=false;
   let prefixText="";
-  let spokenResults=[];
-
-  function showTranscript(){
-    const words=spokenResults.map(r=>r&&r.text?r.text:"").filter(Boolean);
-    $("rawText").value=[prefixText,...words].filter(Boolean).join(" ").trim();
-  }
+  let chromeBuffer="";
 
   recognition.onresult=e=>{
-    for(let i=e.resultIndex;i<e.results.length;i++){
-      const result=e.results[i];
-      const text=result[0].transcript.trim();
-      spokenResults[i]={text,final:result.isFinal};
-    }
-    showTranscript();
+    chromeBuffer=Array.from(e.results)
+      .map(result=>result[0].transcript.trim())
+      .filter(Boolean)
+      .join(" ");
+
+    $("rawText").value=[prefixText,chromeBuffer].filter(Boolean).join(" ").trim();
   };
 
   recognition.onerror=e=>{
