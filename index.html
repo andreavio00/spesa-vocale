@@ -16,11 +16,13 @@
     <section class="panel">
       <h2>1. Collega Bring!</h2>
       <p class="muted">Le credenziali vengono usate solo per la richiesta e non sono salvate nell'app.</p>
-      <label for="email">Email Bring!</label>
-      <input id="email" type="email" autocomplete="username" placeholder="La tua email">
-      <label for="password">Password Bring!</label>
-      <input id="password" type="password" autocomplete="current-password" placeholder="La tua password">
-      <button id="loadLists" class="secondary">Collega e carica le liste</button>
+      <form id="bringLoginForm">
+        <label for="email">Email Bring!</label>
+        <input id="email" type="email" name="username" autocomplete="username" placeholder="La tua email">
+        <label for="password">Password Bring!</label>
+        <input id="password" type="password" name="password" autocomplete="current-password" placeholder="La tua password">
+        <button id="loadLists" class="secondary" type="submit">Collega e carica le liste</button>
+      </form>
       <p id="connection" class="status" role="status">Non collegato</p>
       <label for="listSelect">Destinazione</label>
       <select id="listSelect" disabled><option value="">Prima collega Bring!</option></select>
