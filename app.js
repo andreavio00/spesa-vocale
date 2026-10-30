@@ -49,7 +49,7 @@ if(Speech){
       prefixText=[$("rawText").value.trim()].filter(Boolean).join(" ")+" ";
       sessionFinalText="";
       try{
-        setTimeout(()=>{if(dictationActive){try{recognition.start();}catch(e){}}},300);
+        setTimeout(()=>{if(dictationActive){try{recognition.start();}catch(e){}}},1500);
       }catch(e){}
       return;
     }
