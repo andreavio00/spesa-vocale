@@ -4,7 +4,39 @@ const api=()=>String(window.SPESA_CONFIG?.API_URL||"").replace(/\/$/,"");
 function credentials(){return {email:$("email").value.trim(),password:$("password").value};}
 async function request(path,body){const url=api();if(!url||url.includes("INSERISCI-QUI"))throw Error("Prima configura l'indirizzo del Worker.");const r=await fetch(url+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});let data={};try{data=await r.json()}catch{}if(!r.ok)throw Error(data.error||"Richiesta non riuscita.");return data;}
 $("loadLists").onclick=async()=>{const c=credentials();if(!c.email||!c.password){$("connection").textContent="Inserisci email e password.";return;}$("loadLists").disabled=true;$("connection").textContent="Connessione a Bring!…";try{const d=await request("/api/lists",c);lists=d.lists||[];$("listSelect").innerHTML="";for(const l of lists){const o=document.createElement("option");o.value=l.listUuid;o.textContent=l.name;$("listSelect").append(o)}$("listSelect").disabled=!lists.length;$("connection").textContent=lists.length?"Collegamento riuscito. Scegli la lista.":"Nessuna lista trovata."; }catch(e){$("connection").textContent=e.message;}finally{$("loadLists").disabled=false;}};
-function splitProducts(s){return s.split(/[\n,;]+/i).map(x=>x.trim().replace(/^[-•\s]+|[.!?]+$/g,"")).filter(Boolean);}
+const COMPOUND_PRODUCTS=[
+  "latte parzialmente scremato","latte scremato","latte intero",
+  "acqua frizzante","acqua naturale","acqua minerale",
+  "detersivo per piatti","detersivo piatti",
+  "carta igienica","carta da cucina",
+  "sacchetti per la spazzatura","sacchetti spazzatura",
+  "passata di pomodoro","salsa di pomodoro","succo di frutta",
+  "pane grattugiato","formaggio grattugiato",
+  "prosciutto cotto","prosciutto crudo",
+  "tonno sott'olio","olio extravergine di oliva","olio di oliva",
+  "aceto balsamico","caffè macinato","caffè in grani"
+].map(x=>x.split(" "));
+function splitProducts(s){
+  const result=[];
+  const ignored=new Set(["e","ed","i","il","lo","la","gli","le","un","uno","una"]);
+  const groups=s.replace(/\\bvirgola\\b/gi,",").split(/[\\n,;]+/);
+  for(const group of groups){
+    const words=group.match(/[a-zà-ÿ0-9]+(?:['’][a-zà-ÿ]+)?/gi)||[];
+    for(let i=0;i<words.length;){
+      const word=words[i].toLocaleLowerCase("it-IT");
+      if(ignored.has(word)){i++;continue;}
+      let found=null;
+      for(const phrase of COMPOUND_PRODUCTS){
+        if(phrase.length<=(words.length-i)&&phrase.every((part,j)=>part===words[i+j].toLocaleLowerCase("it-IT"))){
+          if(!found||phrase.length>found.length)found=phrase;
+        }
+      }
+      if(found){result.push(words.slice(i,i+found.length).join(" "));i+=found.length;}
+      else{result.push(words[i]);i++;}
+    }
+  }
+  return result;
+}
 function render(){const root=$("items");root.innerHTML="";if(!products.length)root.innerHTML='<p class="muted">I prodotti compariranno qui.</p>';products.forEach((p,i)=>{const row=document.createElement("div");row.className="item-row";const input=document.createElement("input");input.value=p;input.setAttribute("aria-label","Prodotto "+(i+1));input.oninput=()=>{products[i]=input.value;updateCount()};const del=document.createElement("button");del.className="remove";del.textContent="×";del.setAttribute("aria-label","Rimuovi prodotto");del.onclick=()=>{products.splice(i,1);render()};row.append(input,del);root.append(row)});updateCount();}
 function updateCount(){$("count").textContent=products.length+" prodotti";$("send").disabled=!products.length||!$("listSelect").value;}
 $("parse").onclick=()=>{products=splitProducts($("rawText").value);render();$("sendStatus").textContent="Controlla i nomi prima di inviare.";};
