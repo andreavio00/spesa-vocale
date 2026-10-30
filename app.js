@@ -46,7 +46,7 @@ if(Speech){
   };
   recognition.onend=()=>{
     if(dictationActive){
-      prefixText=[$("rawText").value.trim()].filter(Boolean).join(" ")+" ";
+      prefixText=[$("rawText").value.trim()].filter(Boolean).join(" ")+"\n";
       sessionFinalText="";
       try{
         setTimeout(()=>{if(dictationActive){try{recognition.start();}catch(e){}}},1500);
