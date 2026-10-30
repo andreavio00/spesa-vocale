@@ -26,9 +26,9 @@ if(Speech){
     chromeBuffer=Array.from(e.results)
       .map(result=>result[0].transcript.trim())
       .filter(Boolean)
-      .join(" ");
+      .join(", ");
 
-    $("rawText").value=[prefixText,chromeBuffer].filter(Boolean).join(" ").trim();
+    $("rawText").value=[prefixText,chromeBuffer].filter(Boolean).join(", ").trim();
   };
 
   recognition.onerror=e=>{
