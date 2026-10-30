@@ -49,6 +49,7 @@ if(Speech){
 
       clearTimeout(silenceTimer);
       silenceTimer=setTimeout(()=>{
+        silenceTimer=null;
         pauseElapsed=true;
         if(recognitionEnded){
           if(dictationActive)startRecognition();
@@ -78,6 +79,12 @@ if(Speech){
       if(dictationActive){
         if(pauseElapsed){
           startRecognition();
+        }else if(!silenceTimer){
+          silenceTimer=setTimeout(()=>{
+            silenceTimer=null;
+            pauseElapsed=true;
+            if(dictationActive)startRecognition();
+          },1500);
         }
         return;
       }
@@ -102,7 +109,14 @@ if(Speech){
     if(dictationActive){
       dictationActive=false;
       clearTimeout(silenceTimer);
-      try{recognition?.stop();}catch(e){}
+      silenceTimer=null;
+      if(recognitionEnded){
+        $("record").classList.remove("listening");
+        $("record").textContent="🎙️ Tocca per dettare";
+        $("speechStatus").textContent="Dettatura terminata. Premi “Prepara i prodotti”.";
+      }else{
+        try{recognition?.stop();}catch(e){}
+      }
       return;
     }
     prefixText=$("rawText").value.trim();
