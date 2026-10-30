@@ -29,7 +29,7 @@ if(Speech){
       else interimParts.push(t);
     }
     sessionFinalText=finalParts.join(" ");
-    const visible=[prefixText.trim(),sessionFinalText,interimParts.join(" ")].filter(Boolean).join(" ");
+    const visible=prefixText+[sessionFinalText,interimParts.join(" ")].filter(Boolean).join(" ");
     $("rawText").value=visible;
   };
   recognition.onerror=e=>{
