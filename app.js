@@ -20,15 +20,25 @@ if(Speech){
   recognition.interimResults=true;
   let dictationActive=false;
   let prefixText="";
-  let chromeBuffer="";
+  let spokenResults=[];
+  let lastFinalText="";
 
   recognition.onresult=e=>{
-    chromeBuffer=Array.from(e.results)
-      .map(result=>result[0].transcript.trim())
-      .filter(Boolean)
-      .join(", ");
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const result=e.results[i];
+      if(!result.isFinal) continue;
 
-    $("rawText").value=[prefixText,chromeBuffer].filter(Boolean).join(", ").trim();
+      const text=result[0].transcript.trim();
+      if(!text) continue;
+
+      const normalized=text.toLocaleLowerCase("it-IT").replace(/[.,;:!?]+$/g,"").trim();
+      if(normalized && normalized===lastFinalText) continue;
+
+      spokenResults.push(text);
+      lastFinalText=normalized;
+    }
+
+    $("rawText").value=[prefixText,...spokenResults].filter(Boolean).join(", ").trim();
   };
 
   recognition.onerror=e=>{
@@ -54,6 +64,8 @@ if(Speech){
       return;
     }
     prefixText=$("rawText").value.trim();
+    spokenResults=[];
+    lastFinalText="";
     $("speechStatus").textContent="Ti ascolto…";
     $("record").classList.add("listening");
     $("record").textContent="■ Ferma dettatura";
