@@ -1,4 +1,4 @@
-const VERSION="v1.4",IDLE_MS=8000;
+const VERSION="v1.5",IDLE_MS=8000;
 const $=id=>document.getElementById(id);
 let lists=[],products=[],recognition=null;
 const api=()=>String(window.SPESA_CONFIG?.API_URL||"").replace(/\/$/,"");
@@ -43,7 +43,11 @@ if(Speech){
     };
     recognition.onend=()=>{
       if(pending){commit(pending);pending="";show("");}
-      if(listening){setTimeout(()=>{if(listening){try{startRec();}catch(_){listening=false;clearTimers();uiOff();}}},150);}
+      if(listening){
+        let tries=0;
+        const go=()=>{if(!listening)return;try{startRec();}catch(_){if(++tries<5)setTimeout(go,100);else{listening=false;clearTimers();uiOff();}}};
+        go();
+      }
       else{
         clearTimers();uiOff();
         $("speechStatus").textContent=(silenceClose?"Microfono chiuso per silenzio. ":"Dettatura terminata. ")+"Premi “Prepara i prodotti”.";

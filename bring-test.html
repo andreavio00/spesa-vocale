@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Test apertura Bring</title>
+<style>
+body{font:16px/1.4 system-ui,sans-serif;margin:0;padding:16px;background:#f5f0e8;color:#222}
+a.t{display:block;margin:10px 0;padding:14px;border-radius:12px;background:#fff;border:1px solid #ccc;color:#222;text-decoration:none}
+small{display:block;color:#666;margin-top:4px;word-break:break-all}
+</style></head><body>
+<h1>Test apertura Bring</h1>
+<p>Tocca i pulsanti uno alla volta, con Bring già installato. Annota quale numero apre davvero Bring (e se lo porta in primo piano quando è già aperto).</p>
+<a class="t" href="intent://#Intent;package=ch.publisheria.bring;end">1 · Solo package<small>intent://#Intent;package=ch.publisheria.bring;end</small></a>
+<a class="t" href="intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=ch.publisheria.bring;end">2 · Launcher (MAIN)<small>action=MAIN; category=LAUNCHER</small></a>
+<a class="t" href="intent://web.getbring.com/#Intent;scheme=https;package=ch.publisheria.bring;end">3 · Link web.getbring.com con package<small>scheme=https</small></a>
+<a class="t" href="intent://getbring.com/#Intent;scheme=https;package=ch.publisheria.bring;end">4 · Link getbring.com con package<small>scheme=https</small></a>
+<a class="t" href="intent://#Intent;scheme=bring;package=ch.publisheria.bring;end">5 · Schema bring://<small>scheme=bring</small></a>
+<a class="t" href="android-app://ch.publisheria.bring">6 · android-app://<small>android-app://ch.publisheria.bring</small></a>
+<a class="t" href="bring://">7 · bring:// diretto<small>bring://</small></a>
+</body></html>
