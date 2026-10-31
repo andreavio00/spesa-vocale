@@ -1,4 +1,4 @@
-const VERSION="v1.8",IDLE_MS=0;
+const VERSION="v1.9",IDLE_MS=0;
 const $=id=>document.getElementById(id);
 let lists=[],products=[],recognition=null;
 const api=()=>String(window.SPESA_CONFIG?.API_URL||"").replace(/\/$/,"");
@@ -8,10 +8,11 @@ $("bringLoginForm").addEventListener("submit",async event=>{event.preventDefault
 function splitProducts(s){s=s.replace(/\s*\b(virgola|a capo)\b\s*/gi,",");return s.split(/[\n,;]+/i).map(x=>x.trim().replace(/^[-•\s]+|[.!?]+$/g,"")).filter(Boolean);}
 function render(){const root=$("items");root.innerHTML="";if(!products.length)root.innerHTML='<p class="muted">I prodotti compariranno qui.</p>';products.forEach((p,i)=>{const row=document.createElement("div");row.className="item-row";const input=document.createElement("input");input.value=p;input.setAttribute("aria-label","Prodotto "+(i+1));input.oninput=()=>{products[i]=input.value;updateCount()};const del=document.createElement("button");del.className="remove";del.textContent="×";del.setAttribute("aria-label","Rimuovi prodotto");del.onclick=()=>{products.splice(i,1);render()};row.append(input,del);root.append(row)});updateCount();}
 function updateCount(){$("count").textContent=products.length+" prodotti";$("send").disabled=!products.length||!$("listSelect").value;}
-$("parse").onclick=()=>{const raw=$("rawText").value;products=splitProducts(raw);render();$("sendStatus").textContent="VERIFICA (non inviare): testo letto="+JSON.stringify(raw)+" | prodotti creati="+JSON.stringify(products);};
+$("parse").onclick=()=>{stopDictation();const raw=$("rawText").value;products=splitProducts(raw);render();$("sendStatus").textContent="VERIFICA (non inviare): testo letto="+JSON.stringify(raw)+" | prodotti creati="+JSON.stringify(products);};
 $("addItem").onclick=()=>{products.push("");render();const inputs=$("items").querySelectorAll("input");inputs[inputs.length-1]?.focus();};
 $("listSelect").onchange=updateCount;
-$("send").onclick=async()=>{const c=credentials(),listId=$("listSelect").value;const clean=products.map(x=>x.trim()).filter(Boolean);if(!c.email||!c.password||!listId||!clean.length)return;$("send").disabled=true;$("sendStatus").textContent="Invio a Bring!…";try{const d=await request("/api/add",{...c,listId,items:clean.map(name=>({name}))});$("sendStatus").textContent="Aggiunti "+(d.added??clean.length)+" prodotti alla lista!";products=[];$("rawText").value="";render();}catch(e){$("sendStatus").textContent=e.message;}finally{updateCount();}};
+$("send").onclick=async()=>{const c=credentials(),listId=$("listSelect").value;const clean=products.map(x=>x.trim()).filter(Boolean);if(!c.email||!c.password||!listId||!clean.length)return;$("send").disabled=true;stopDictation();$("sendStatus").textContent="Invio a Bring!…";try{const d=await request("/api/add",{...c,listId,items:clean.map(name=>({name}))});$("sendStatus").textContent="Aggiunti "+(d.added??clean.length)+" prodotti alla lista!";products=[];$("rawText").value="";render();}catch(e){$("sendStatus").textContent=e.message;}finally{updateCount();}};
+let stopDictation=()=>{};
 const Speech=window.SpeechRecognition||window.webkitSpeechRecognition;
 if(Speech){
   let listening=false,committed="",pending="",idleTimer=null,silenceClose=false;
@@ -19,6 +20,14 @@ if(Speech){
   const commit=t=>{t=t.trim();if(t)committed+=(committed?"\n":"")+t;};
   const uiOff=()=>{$("record").classList.remove("listening");$("record").textContent="🎙️ Tocca per dettare";};
   const clearTimers=()=>{clearTimeout(idleTimer);};
+  stopDictation=()=>{
+    if(listening){
+      if(pending){commit(pending);pending="";show("");}
+      listening=false;clearTimers();
+      if(recognition){recognition.onresult=null;try{recognition.stop();}catch(_){}}
+    }
+    committed="";pending="";
+  };
   const armIdle=()=>{clearTimeout(idleTimer);if(!IDLE_MS)return;idleTimer=setTimeout(()=>{if(listening){silenceClose=true;listening=false;try{recognition.stop();}catch(_){}}},IDLE_MS);};
   const startRec=()=>{
     recognition=new Speech();
@@ -64,6 +73,7 @@ if(Speech){
     armIdle();
     try{startRec();}catch(_){listening=false;clearTimers();uiOff();$("speechStatus").textContent="Usa il microfono della tastiera.";}
   };
+  $("rawText").addEventListener("focus",()=>stopDictation());
 }else{$("record").onclick=()=>{$("speechStatus").textContent="Il browser non supporta la dettatura diretta. Tocca il campo e usa il microfono di Gboard.";$("rawText").focus();};}
 if("serviceWorker"in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{});
 // versione in fondo alla pagina
