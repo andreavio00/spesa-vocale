@@ -12,6 +12,45 @@ $("addItem").onclick=()=>{products.push("");render();const inputs=$("items").que
 $("listSelect").onchange=updateCount;
 $("send").onclick=async()=>{const c=credentials(),listId=$("listSelect").value;const clean=products.map(x=>x.trim()).filter(Boolean);if(!c.email||!c.password||!listId||!clean.length)return;$("send").disabled=true;$("sendStatus").textContent="Invio a Bring!…";try{const d=await request("/api/add",{...c,listId,items:clean.map(name=>({name}))});$("sendStatus").textContent="Aggiunti "+(d.added??clean.length)+" prodotti alla lista!";products=[];$("rawText").value="";render();}catch(e){$("sendStatus").textContent=e.message;}finally{updateCount();}};
 const Speech=window.SpeechRecognition||window.webkitSpeechRecognition;
-if(Speech){recognition=new Speech();recognition.lang="it-IT";recognition.continuous=true;recognition.interimResults=true;let prefixText="";recognition.onresult=e=>{const spoken=[];for(let i=0;i<e.results.length;i++){const t=e.results[i][0].transcript.trim();if(t)spoken.push(t);}$("rawText").value=(prefixText+spoken.join(" ")).trim();};recognition.onerror=()=>{$("speechStatus").textContent="Dettatura non disponibile: usa il microfono della tastiera.";};recognition.onend=()=>{$("record").classList.remove("listening");$("record").textContent="🎙️ Tocca per dettare";$("speechStatus").textContent="Dettatura terminata. Premi “Prepara i prodotti”.";};$("record").onclick=()=>{try{if($("record").classList.contains("listening"))recognition.stop();else{prefixText=$("rawText").value?$("rawText").value.trim()+" ":"";recognition.start();$("record").classList.add("listening");$("record").textContent="■ Ferma dettatura";$("speechStatus").textContent="Ti ascolto…";}}catch(e){$("speechStatus").textContent="Usa il microfono della tastiera.";}};}else{$("record").onclick=()=>{$("speechStatus").textContent="Il browser non supporta la dettatura diretta. Tocca il campo e usa il microfono di Gboard."; $("rawText").focus();};}
+if(Speech){
+  let listening=false,committed="",pending="";
+  const show=interim=>{$("rawText").value=[committed,interim].filter(Boolean).join("\n");};
+  const commit=t=>{t=t.trim();if(t)committed+=(committed?"\n":"")+t;};
+  const uiOff=()=>{$("record").classList.remove("listening");$("record").textContent="🎙️ Tocca per dettare";};
+  const startRec=()=>{
+    recognition=new Speech();
+    recognition.lang="it-IT";
+    recognition.continuous=false;
+    recognition.interimResults=true;
+    recognition.maxAlternatives=1;
+    recognition.onresult=e=>{
+      let interim="";
+      for(let i=e.resultIndex;i<e.results.length;i++){
+        const r=e.results[i],t=r[0].transcript.trim();
+        if(r.isFinal){commit(t);pending="";}else interim=t;
+      }
+      pending=interim;
+      show(interim);
+    };
+    recognition.onerror=e=>{
+      if(e.error==="no-speech"||e.error==="aborted")return;
+      listening=false;
+      $("speechStatus").textContent="Dettatura non disponibile ("+e.error+"): usa il microfono della tastiera.";
+    };
+    recognition.onend=()=>{
+      if(pending){commit(pending);pending="";show("");}
+      if(listening){setTimeout(()=>{if(listening){try{startRec();}catch(_){listening=false;uiOff();}}},150);}
+      else{uiOff();$("speechStatus").textContent="Dettatura terminata. Premi “Prepara i prodotti”.";}
+    };
+    recognition.start();
+  };
+  $("record").onclick=()=>{
+    if(listening){listening=false;try{recognition.stop();}catch(_){}return;}
+    committed=$("rawText").value.trim();pending="";listening=true;
+    $("record").classList.add("listening");$("record").textContent="■ Ferma dettatura";
+    $("speechStatus").textContent="Ti ascolto… fai una pausa tra un prodotto e l'altro.";
+    try{startRec();}catch(_){listening=false;uiOff();$("speechStatus").textContent="Usa il microfono della tastiera.";}
+  };
+}else{$("record").onclick=()=>{$("speechStatus").textContent="Il browser non supporta la dettatura diretta. Tocca il campo e usa il microfono di Gboard.";$("rawText").focus();};}
 if("serviceWorker"in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{});
 render();
