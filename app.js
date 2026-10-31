@@ -1,3 +1,4 @@
+const VERSION="v1.3",PAUSE_MS=800,IDLE_MS=8000,BRING_PACKAGE="ch.publisheria.bring";
 const $=id=>document.getElementById(id);
 let lists=[],products=[],recognition=null;
 const api=()=>String(window.SPESA_CONFIG?.API_URL||"").replace(/\/$/,"");
@@ -10,13 +11,15 @@ function updateCount(){$("count").textContent=products.length+" prodotti";$("sen
 $("parse").onclick=()=>{const raw=$("rawText").value;products=splitProducts(raw);render();$("sendStatus").textContent="VERIFICA (non inviare): testo letto="+JSON.stringify(raw)+" | prodotti creati="+JSON.stringify(products);};
 $("addItem").onclick=()=>{products.push("");render();const inputs=$("items").querySelectorAll("input");inputs[inputs.length-1]?.focus();};
 $("listSelect").onchange=updateCount;
-$("send").onclick=async()=>{const c=credentials(),listId=$("listSelect").value;const clean=products.map(x=>x.trim()).filter(Boolean);if(!c.email||!c.password||!listId||!clean.length)return;$("send").disabled=true;$("sendStatus").textContent="Invio a Bring!…";try{const d=await request("/api/add",{...c,listId,items:clean.map(name=>({name}))});$("sendStatus").textContent="Aggiunti "+(d.added??clean.length)+" prodotti alla lista!";products=[];$("rawText").value="";render();}catch(e){$("sendStatus").textContent=e.message;}finally{updateCount();}};
+$("send").onclick=async()=>{const c=credentials(),listId=$("listSelect").value;const clean=products.map(x=>x.trim()).filter(Boolean);if(!c.email||!c.password||!listId||!clean.length)return;$("send").disabled=true;$("sendStatus").textContent="Invio a Bring!…";try{const d=await request("/api/add",{...c,listId,items:clean.map(name=>({name}))});$("sendStatus").textContent="Aggiunti "+(d.added??clean.length)+" prodotti alla lista!";products=[];$("rawText").value="";render();openBring();}catch(e){$("sendStatus").textContent=e.message;}finally{updateCount();}};
 const Speech=window.SpeechRecognition||window.webkitSpeechRecognition;
 if(Speech){
-  let listening=false,committed="",pending="";
+  let listening=false,committed="",pending="",pauseTimer=null,idleTimer=null,silenceClose=false;
   const show=interim=>{$("rawText").value=[committed,interim].filter(Boolean).join("\n");};
   const commit=t=>{t=t.trim();if(t)committed+=(committed?"\n":"")+t;};
   const uiOff=()=>{$("record").classList.remove("listening");$("record").textContent="🎙️ Tocca per dettare";};
+  const clearTimers=()=>{clearTimeout(pauseTimer);clearTimeout(idleTimer);};
+  const armIdle=()=>{clearTimeout(idleTimer);idleTimer=setTimeout(()=>{if(listening){silenceClose=true;listening=false;try{recognition.stop();}catch(_){}}},IDLE_MS);};
   const startRec=()=>{
     recognition=new Speech();
     recognition.lang="it-IT";
@@ -31,26 +34,41 @@ if(Speech){
       }
       pending=interim;
       show(interim);
+      armIdle();
+      clearTimeout(pauseTimer);
+      if(interim)pauseTimer=setTimeout(()=>{try{recognition.stop();}catch(_){}},PAUSE_MS);
     };
     recognition.onerror=e=>{
       if(e.error==="no-speech"||e.error==="aborted")return;
-      listening=false;
+      listening=false;clearTimers();
       $("speechStatus").textContent="Dettatura non disponibile ("+e.error+"): usa il microfono della tastiera.";
     };
     recognition.onend=()=>{
+      clearTimeout(pauseTimer);
       if(pending){commit(pending);pending="";show("");}
-      if(listening){setTimeout(()=>{if(listening){try{startRec();}catch(_){listening=false;uiOff();}}},150);}
-      else{uiOff();$("speechStatus").textContent="Dettatura terminata. Premi “Prepara i prodotti”.";}
+      if(listening){setTimeout(()=>{if(listening){try{startRec();}catch(_){listening=false;clearTimers();uiOff();}}},150);}
+      else{
+        clearTimers();uiOff();
+        $("speechStatus").textContent=(silenceClose?"Microfono chiuso per silenzio. ":"Dettatura terminata. ")+"Premi “Prepara i prodotti”.";
+        silenceClose=false;
+      }
     };
     recognition.start();
   };
   $("record").onclick=()=>{
-    if(listening){listening=false;try{recognition.stop();}catch(_){}return;}
-    committed=$("rawText").value.trim();pending="";listening=true;
+    if(listening){listening=false;clearTimers();try{recognition.stop();}catch(_){}return;}
+    committed=$("rawText").value.trim();pending="";silenceClose=false;listening=true;
     $("record").classList.add("listening");$("record").textContent="■ Ferma dettatura";
-    $("speechStatus").textContent="Ti ascolto… fai una pausa tra un prodotto e l'altro.";
-    try{startRec();}catch(_){listening=false;uiOff();$("speechStatus").textContent="Usa il microfono della tastiera.";}
+    $("speechStatus").textContent="Ti ascolto… fai una breve pausa tra un prodotto e l'altro.";
+    armIdle();
+    try{startRec();}catch(_){listening=false;clearTimers();uiOff();$("speechStatus").textContent="Usa il microfono della tastiera.";}
   };
 }else{$("record").onclick=()=>{$("speechStatus").textContent="Il browser non supporta la dettatura diretta. Tocca il campo e usa il microfono di Gboard.";$("rawText").focus();};}
 if("serviceWorker"in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{});
+function openBring(){
+  if(!/Android/i.test(navigator.userAgent))return;
+  setTimeout(()=>{location.href="intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package="+BRING_PACKAGE+";end";},700);
+}
+// versione in fondo alla pagina
+(()=>{const f=document.querySelector("footer");if(f)f.textContent+=" · "+VERSION;})();
 render();
