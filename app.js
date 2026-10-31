@@ -1,11 +1,11 @@
-const VERSION="v1.5",IDLE_MS=8000;
+const VERSION="v1.8",IDLE_MS=0;
 const $=id=>document.getElementById(id);
 let lists=[],products=[],recognition=null;
 const api=()=>String(window.SPESA_CONFIG?.API_URL||"").replace(/\/$/,"");
 function credentials(){return {email:$("email").value.trim(),password:$("password").value};}
 async function request(path,body){const url=api();if(!url||url.includes("INSERISCI-QUI"))throw Error("Prima configura l'indirizzo del Worker.");const r=await fetch(url+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});let data={};try{data=await r.json()}catch{}if(!r.ok)throw Error(data.error||"Richiesta non riuscita.");return data;}
 $("bringLoginForm").addEventListener("submit",async event=>{event.preventDefault();const c=credentials();if(!c.email||!c.password){$("connection").textContent="Inserisci email e password.";return;}$("loadLists").disabled=true;$("connection").textContent="Connessione a Bring!…";try{const d=await request("/api/lists",c);lists=d.lists||[];$("listSelect").innerHTML="";for(const l of lists){const o=document.createElement("option");o.value=l.listUuid;o.textContent=l.name;$("listSelect").append(o)}$("listSelect").disabled=!lists.length;$("connection").textContent=lists.length?"Collegamento riuscito. Scegli la lista.":"Nessuna lista trovata."; }catch(e){$("connection").textContent=e.message;}finally{$("loadLists").disabled=false;}});
-function splitProducts(s){return s.split(/[\n,;]+/i).map(x=>x.trim().replace(/^[-•\s]+|[.!?]+$/g,"")).filter(Boolean);}
+function splitProducts(s){s=s.replace(/\s*\b(virgola|a capo)\b\s*/gi,",");return s.split(/[\n,;]+/i).map(x=>x.trim().replace(/^[-•\s]+|[.!?]+$/g,"")).filter(Boolean);}
 function render(){const root=$("items");root.innerHTML="";if(!products.length)root.innerHTML='<p class="muted">I prodotti compariranno qui.</p>';products.forEach((p,i)=>{const row=document.createElement("div");row.className="item-row";const input=document.createElement("input");input.value=p;input.setAttribute("aria-label","Prodotto "+(i+1));input.oninput=()=>{products[i]=input.value;updateCount()};const del=document.createElement("button");del.className="remove";del.textContent="×";del.setAttribute("aria-label","Rimuovi prodotto");del.onclick=()=>{products.splice(i,1);render()};row.append(input,del);root.append(row)});updateCount();}
 function updateCount(){$("count").textContent=products.length+" prodotti";$("send").disabled=!products.length||!$("listSelect").value;}
 $("parse").onclick=()=>{const raw=$("rawText").value;products=splitProducts(raw);render();$("sendStatus").textContent="VERIFICA (non inviare): testo letto="+JSON.stringify(raw)+" | prodotti creati="+JSON.stringify(products);};
@@ -19,7 +19,7 @@ if(Speech){
   const commit=t=>{t=t.trim();if(t)committed+=(committed?"\n":"")+t;};
   const uiOff=()=>{$("record").classList.remove("listening");$("record").textContent="🎙️ Tocca per dettare";};
   const clearTimers=()=>{clearTimeout(idleTimer);};
-  const armIdle=()=>{clearTimeout(idleTimer);idleTimer=setTimeout(()=>{if(listening){silenceClose=true;listening=false;try{recognition.stop();}catch(_){}}},IDLE_MS);};
+  const armIdle=()=>{clearTimeout(idleTimer);if(!IDLE_MS)return;idleTimer=setTimeout(()=>{if(listening){silenceClose=true;listening=false;try{recognition.stop();}catch(_){}}},IDLE_MS);};
   const startRec=()=>{
     recognition=new Speech();
     recognition.lang="it-IT";
@@ -68,4 +68,7 @@ if(Speech){
 if("serviceWorker"in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{});
 // versione in fondo alla pagina
 (()=>{const f=document.querySelector("footer");if(f)f.textContent+=" · "+VERSION;})();
+// testo ricevuto da fuori (es. MacroDroid): ...?t=latte,pane,uova
+(()=>{const t=new URLSearchParams(location.search).get("t");if(t){$("rawText").value=t;products=splitProducts(t);$("sendStatus").textContent="Testo ricevuto: controlla l'elenco e invia.";history.replaceState(null,"",location.pathname);}})();
+$("kbdict").onclick=()=>{const t=$("rawText");t.focus();const n=t.value.length;try{t.setSelectionRange(n,n);}catch(_){}t.scrollIntoView({block:"center"});$("speechStatus").textContent="Tocca il microfono sulla tastiera e di' «virgola» tra un prodotto e l'altro.";};
 render();
