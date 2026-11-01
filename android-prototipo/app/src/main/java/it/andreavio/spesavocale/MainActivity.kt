@@ -54,11 +54,28 @@ class MainActivity : Activity() {
             (function(){
               const b=document.getElementById('record'), f=document.getElementById('rawText'), s=document.getElementById('speechStatus');
               if(!b||!f||!window.AndroidSpeech)return;
+              let committed = f.value || '';
+              let partial = '';
+              const showText = value => { f.value=value; f.dispatchEvent(new Event('input',{bubbles:true})); };
               b.onclick=()=>AndroidSpeech.toggle();
               ['parse','send'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('click',()=>AndroidSpeech.stop(),true);});
-              window.onNativeSpeechText=t=>{t=(t||'').trim();if(t){f.value+=(f.value.trim()?'\\n':'')+t;f.dispatchEvent(new Event('input',{bubbles:true}));}};
-              window.onNativeSpeechState=(active,msg)=>{b.classList.toggle('listening',!!active);b.textContent=active?'■ Ferma dettatura':'🎙️ Tocca per dettare';s.textContent=msg||'';};
-              window.onNativeSpeechError=m=>{s.textContent=m;};
+              window.onNativeSpeechPartialText=t=>{
+                partial=(t||'').trim();
+                showText(committed+(partial?(committed.trim()?'\\n':'')+partial:''));
+              };
+              window.onNativeSpeechText=t=>{
+                t=(t||'').trim();
+                partial='';
+                if(t) committed+=(committed.trim()?'\\n':'')+t;
+                showText(committed);
+              };
+              window.onNativeSpeechState=(active,msg)=>{
+                if(active){committed=f.value||'';partial='';}
+                b.classList.toggle('listening',!!active);
+                b.textContent=active?'■ Ferma dettatura':'🎙️ Tocca per dettare';
+                s.textContent=msg||'';
+              };
+              window.onNativeSpeechError=m=>{partial='';showText(committed);s.textContent=m;};
             })();
         """.trimIndent(), null)
     }
@@ -106,7 +123,11 @@ class MainActivity : Activity() {
                 override fun onBufferReceived(b: ByteArray?) {}
                 override fun onEndOfSpeech() {}
                 override fun onEvent(t: Int, p: Bundle?) {}
-                override fun onPartialResults(p: Bundle?) {}
+                override fun onPartialResults(p: Bundle?) {
+                    val text = p?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                    val safe = JSONObject.quote(text)
+                    web.post { web.evaluateJavascript("window.onNativeSpeechPartialText($safe)", null) }
+                }
                 override fun onResults(b: Bundle?) {
                     val text = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
                     if (text.isNotBlank()) {
@@ -116,6 +137,7 @@ class MainActivity : Activity() {
                     if (listening) web.postDelayed({ listenAgain() }, 250)
                 }
                 override fun onError(error: Int) {
+                    web.post { web.evaluateJavascript("window.onNativeSpeechPartialText('')", null) }
                     if (!listening) return
                     if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
                         web.postDelayed({ listenAgain() }, 300)
@@ -132,6 +154,11 @@ class MainActivity : Activity() {
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                // Una pausa breve chiude il prodotto corrente; le parole pronunciate
+                // prima della pausa restano nella stessa frase (es. "vino rosso").
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 900L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 700L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 300L)
             }
             recognizer?.startListening(intent)
         } catch (e: Exception) {
