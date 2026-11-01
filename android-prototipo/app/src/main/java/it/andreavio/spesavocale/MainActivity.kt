@@ -1,7 +1,31 @@
 package it.andreavio.spesavocale
 
 import android.Manifest
-import android.app.Activity
+import android.app.AlertDialog
+import android.content.Context
+import android.content.SharedPreferences
+import android.os.Build
+import android.text.InputType
+import android.view.Gravity
+import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.SeekBar
+import android.widget.TextView
+import android.widget.Toast
+import android.util.Base64
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
+import java.nio.charset.StandardCharsets
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -18,25 +42,217 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import org.json.JSONObject
 
-class MainActivity : Activity() {
+class MainActivity : FragmentActivity() {
     private lateinit var web: WebView
     private var recognizer: SpeechRecognizer? = null
     private var listening = false
     private var consecutiveServerErrors = 0
     private val silenceHandler = Handler(Looper.getMainLooper())
+    private val prefs: SharedPreferences by lazy { getSharedPreferences("spesa_vocale_settings", Context.MODE_PRIVATE) }
+    private val appUrl = "https://andreavio00.github.io/spesa-vocale/"
     private val silenceStopRunnable = Runnable {
         if (listening) {
             listening = false
             destroySpeech()
-            state(false, "Dettatura arrestata dopo 8 secondi di silenzio.")
+            state(false, "Dettatura arrestata dopo ${prefs.getInt("silence_stop_seconds", 4)} secondi di silenzio.")
         }
     }
 
     private fun armSilenceStop() {
         silenceHandler.removeCallbacks(silenceStopRunnable)
-        silenceHandler.postDelayed(silenceStopRunnable, 8000L)
+        val seconds = prefs.getInt("silence_stop_seconds", 4).coerceIn(2, 10)
+        silenceHandler.postDelayed(silenceStopRunnable, seconds * 1000L)
     }
-    private val appUrl = "https://andreavio00.github.io/spesa-vocale/"
+
+    private fun biometricPrompt(onSuccess: (BiometricPrompt.AuthenticationResult) -> Unit, onError: (String) -> Unit, cipher: Cipher? = null) {
+        val manager = BiometricManager.from(this)
+        if (manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) != BiometricManager.BIOMETRIC_SUCCESS) {
+            onError("Impronta digitale non disponibile o non configurata. Puoi comunque inserire la password manualmente.")
+            return
+        }
+        val prompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) { onSuccess(result) }
+            override fun onAuthenticationError(code: Int, message: CharSequence) { onError(message.toString()) }
+            override fun onAuthenticationFailed() { Toast.makeText(this@MainActivity, "Impronta non riconosciuta. Riprova.", Toast.LENGTH_SHORT).show() }
+        })
+        val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Spesa Vocale")
+            .setSubtitle(if (cipher == null) "Conferma per proteggere la password Bring!" else "Sblocca le credenziali Bring!")
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+            .setNegativeButtonText("Annulla")
+            .build()
+        val crypto = cipher?.let { BiometricPrompt.CryptoObject(it) }
+        if (crypto != null) prompt.authenticate(info, crypto) else prompt.authenticate(info)
+    }
+
+    private fun secretKey(): SecretKey {
+        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (store.getKey("spesa_vocale_bring_key", null) as? SecretKey)?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        val spec = KeyGenParameterSpec.Builder(
+            "spesa_vocale_bring_key",
+            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+        ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setRandomizedEncryptionRequired(true)
+            .setUserAuthenticationRequired(true)
+            .setUserAuthenticationValidityDurationSeconds(-1)
+            .build()
+        generator.init(spec)
+        return generator.generateKey()
+    }
+
+    private fun savePasswordSecure(account: String, password: String) {
+        if (account.isBlank() || password.isBlank()) {
+            Toast.makeText(this, "Inserisci User-ID/email e password.", Toast.LENGTH_LONG).show()
+            return
+        }
+        try {
+            prefs.edit().putString("bring_account_id", account.trim()).apply()
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey())
+            biometricPrompt({ result ->
+                try {
+                    val authenticated = result.cryptoObject?.cipher ?: throw IllegalStateException("Autenticazione non valida")
+                    val encrypted = authenticated.doFinal(password.toByteArray(StandardCharsets.UTF_8))
+                    prefs.edit()
+                        .putString("bring_password_iv", Base64.encodeToString(authenticated.iv, Base64.NO_WRAP))
+                        .putString("bring_password_data", Base64.encodeToString(encrypted, Base64.NO_WRAP))
+                        .apply()
+                    web.evaluateJavascript("window.onNativeCredentialsSaved && window.onNativeCredentialsSaved()", null)
+                    Toast.makeText(this, "Password protetta e salvata sul telefono.", Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Non sono riuscito a salvare la password: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                }
+            }, { message -> Toast.makeText(this, message, Toast.LENGTH_LONG).show() }, cipher)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Protezione biometrica non disponibile: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun connectWithBiometric() {
+        val account = prefs.getString("bring_account_id", "").orEmpty()
+        val ivText = prefs.getString("bring_password_iv", null)
+        val dataText = prefs.getString("bring_password_data", null)
+        if (account.isBlank() || ivText.isNullOrBlank() || dataText.isNullOrBlank()) {
+            Toast.makeText(this, "Prima salva le credenziali nelle Impostazioni.", Toast.LENGTH_LONG).show()
+            return
+        }
+        try {
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            val iv = Base64.decode(ivText, Base64.NO_WRAP)
+            cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(128, iv))
+            biometricPrompt({ result ->
+                try {
+                    val authenticated = result.cryptoObject?.cipher ?: throw IllegalStateException("Autenticazione non valida")
+                    val password = authenticated.doFinal(Base64.decode(dataText, Base64.NO_WRAP)).toString(StandardCharsets.UTF_8)
+                    val accountJson = JSONObject.quote(account)
+                    val passwordJson = JSONObject.quote(password)
+                    web.evaluateJavascript("window.onNativeCredentials && window.onNativeCredentials($accountJson,$passwordJson)", null)
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Credenziali non leggibili. Salvale nuovamente nelle Impostazioni.", Toast.LENGTH_LONG).show()
+                }
+            }, { message -> Toast.makeText(this, message, Toast.LENGTH_LONG).show() }, cipher)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Credenziali da salvare nuovamente: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun showSavePasswordDialog(account: String) {
+        val field = EditText(this).apply {
+            hint = "Password Bring!"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 8, 48, 0)
+            addView(field)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Salva password")
+            .setMessage("La password sarà cifrata sul telefono e potrà essere recuperata solo dopo l'autenticazione biometrica.")
+            .setView(container)
+            .setNegativeButton("Annulla", null)
+            .setPositiveButton("Proteggi con impronta") { _, _ ->
+                val password = field.text.toString()
+                field.setText("")
+                savePasswordSecure(account, password)
+            }.show()
+    }
+
+    private fun showSettings() {
+        val account = EditText(this).apply {
+            hint = "Email / User-ID Bring!"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            setText(prefs.getString("bring_account_id", ""))
+        }
+        val stopLabel = TextView(this)
+        val stopSeek = SeekBar(this).apply {
+            max = 8
+            progress = (prefs.getInt("silence_stop_seconds", 4) - 2).coerceIn(0, 8)
+        }
+        val phraseLabel = TextView(this)
+        val phraseSeek = SeekBar(this).apply {
+            max = 15
+            progress = ((prefs.getInt("phrase_silence_ms", 1000) - 500) / 100).coerceIn(0, 15)
+        }
+        fun updateLabels() {
+            stopLabel.text = "Arresto automatico dopo il silenzio: ${stopSeek.progress + 2} secondi"
+            phraseLabel.text = "Pausa per chiudere una frase: ${(phraseSeek.progress + 5) / 10.0} secondi"
+        }
+        stopSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) = updateLabels()
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+        phraseSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) = updateLabels()
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+        updateLabels()
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 8, 48, 0)
+            addView(TextView(this@MainActivity).apply { text = "Account Bring!"; textSize = 16f })
+            addView(account)
+            addView(stopLabel)
+            addView(stopSeek)
+            addView(phraseLabel)
+            addView(phraseSeek)
+            addView(TextView(this@MainActivity).apply {
+                text = if (prefs.contains("bring_password_data")) "Password protetta presente sul telefono." else "Nessuna password salvata."
+                setPadding(0, 12, 0, 0)
+            })
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Impostazioni")
+            .setView(layout)
+            .setNegativeButton("Chiudi", null)
+            .setNeutralButton("Gestisci password", null)
+            .setPositiveButton("Salva", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val id = account.text.toString().trim()
+                prefs.edit()
+                    .putString("bring_account_id", id)
+                    .putInt("silence_stop_seconds", stopSeek.progress + 2)
+                    .putInt("phrase_silence_ms", 500 + phraseSeek.progress * 100)
+                    .apply()
+                web.evaluateJavascript("window.onNativeAccountId && window.onNativeAccountId(${JSONObject.quote(id)})", null)
+                Toast.makeText(this, "Impostazioni salvate.", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                val id = account.text.toString().trim()
+                prefs.edit().putString("bring_account_id", id).apply()
+                dialog.dismiss()
+                showSavePasswordDialog(id)
+            }
+        }
+        dialog.show()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,6 +288,34 @@ class MainActivity : Activity() {
             (function(){
               const b=document.getElementById('record'), f=document.getElementById('rawText'), s=document.getElementById('speechStatus');
               if(!b||!f||!window.AndroidSpeech)return;
+              const header=document.querySelector('header');
+              if(header&&!document.getElementById('nativeSettings')){
+                const settings=document.createElement('button');
+                settings.id='nativeSettings';settings.type='button';settings.textContent='⚙ Impostazioni';
+                settings.style.cssText='margin-left:auto;padding:9px 11px;border:1px solid #d8d0c4;border-radius:10px;background:#fff;font:600 13px system-ui;color:#40382f';
+                settings.onclick=()=>AndroidSpeech.openSettings();
+                header.appendChild(settings);
+              }
+              const form=document.getElementById('bringLoginForm');
+              if(form&&!document.getElementById('biometricLogin')){
+                const bio=document.createElement('button');
+                bio.id='biometricLogin';bio.type='button';bio.textContent='🔒 Collega con impronta';
+                bio.className='secondary';bio.style.display=AndroidSpeech.hasSavedCredentials()?'block':'none';
+                bio.addEventListener('click',()=>AndroidSpeech.connectWithBiometric());
+                const submit=document.getElementById('loadLists');
+                if(submit)form.insertBefore(bio,submit);
+              }
+              const savedId=AndroidSpeech.getAccountId();
+              if(savedId){const email=document.getElementById('email');if(email&&!email.value)email.value=savedId;}
+              window.onNativeAccountId=id=>{const email=document.getElementById('email');if(email)email.value=id||'';};
+              window.onNativeCredentials=(email,password)=>{
+                const e=document.getElementById('email'),p=document.getElementById('password'),form=document.getElementById('bringLoginForm');
+                if(e)e.value=email;if(p)p.value=password;
+                if(e)e.dispatchEvent(new Event('input',{bubbles:true}));
+                if(p)p.dispatchEvent(new Event('input',{bubbles:true}));
+                if(form&&form.requestSubmit)form.requestSubmit();else if(form)form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+              };
+              window.onNativeCredentialsSaved=()=>{const bio=document.getElementById('biometricLogin');if(bio)bio.style.display='block';};
               let committed = f.value || '';
               let partial = '';
               const showText = value => { f.value=value; f.dispatchEvent(new Event('input',{bubbles:true})); };
@@ -103,6 +347,10 @@ class MainActivity : Activity() {
     inner class Bridge {
         @JavascriptInterface fun toggle() { runOnUiThread { if (listening) stopSpeech() else askPermissionAndStart() } }
         @JavascriptInterface fun stop() { runOnUiThread { stopSpeech() } }
+        @JavascriptInterface fun openSettings() { runOnUiThread { showSettings() } }
+        @JavascriptInterface fun hasSavedCredentials(): Boolean = prefs.contains("bring_password_data") && prefs.contains("bring_password_iv")
+        @JavascriptInterface fun getAccountId(): String = prefs.getString("bring_account_id", "").orEmpty()
+        @JavascriptInterface fun connectWithBiometric() { runOnUiThread { connectWithBiometric() } }
         @JavascriptInterface fun openBring() {
             runOnUiThread {
                 try {
@@ -212,8 +460,9 @@ class MainActivity : Activity() {
                 // il supporto on-device ma si disconnettono con il modello it-IT.
                 // Una pausa breve chiude il prodotto corrente; le parole pronunciate
                 // prima della pausa restano nella stessa frase (es. "vino rosso").
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 900L)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 700L)
+                val phraseSilence = prefs.getInt("phrase_silence_ms", 1000).coerceIn(500, 2000).toLong()
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, phraseSilence)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, phraseSilence)
                 putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 300L)
             }
             recognizer?.startListening(intent)
