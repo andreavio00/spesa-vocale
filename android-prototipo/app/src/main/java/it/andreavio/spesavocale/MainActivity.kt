@@ -5,6 +5,8 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -20,6 +22,19 @@ class MainActivity : Activity() {
     private var recognizer: SpeechRecognizer? = null
     private var listening = false
     private var consecutiveServerErrors = 0
+    private val silenceHandler = Handler(Looper.getMainLooper())
+    private val silenceStopRunnable = Runnable {
+        if (listening) {
+            listening = false
+            destroySpeech()
+            state(false, "Dettatura arrestata dopo 8 secondi di silenzio.")
+        }
+    }
+
+    private fun armSilenceStop() {
+        silenceHandler.removeCallbacks(silenceStopRunnable)
+        silenceHandler.postDelayed(silenceStopRunnable, 8000L)
+    }
     private val appUrl = "https://andreavio00.github.io/spesa-vocale/"
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,6 +74,8 @@ class MainActivity : Activity() {
               let partial = '';
               const showText = value => { f.value=value; f.dispatchEvent(new Event('input',{bubbles:true})); };
               b.onclick=()=>AndroidSpeech.toggle();
+              const openBring=document.getElementById('openBring');
+              if(openBring)openBring.addEventListener('click',e=>{e.preventDefault();AndroidSpeech.openBring();});
               ['parse','send'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('click',()=>AndroidSpeech.stop(),true);});
               window.onNativeSpeechPartialText=t=>{
                 partial=(t||'').trim();
@@ -84,6 +101,17 @@ class MainActivity : Activity() {
     inner class Bridge {
         @JavascriptInterface fun toggle() { runOnUiThread { if (listening) stopSpeech() else askPermissionAndStart() } }
         @JavascriptInterface fun stop() { runOnUiThread { stopSpeech() } }
+        @JavascriptInterface fun openBring() {
+            runOnUiThread {
+                try {
+                    val launchIntent = packageManager.getLaunchIntentForPackage("ch.publisheria.bring")
+                    if (launchIntent != null) startActivity(launchIntent)
+                    else state(false, "Bring! non risulta installata su questo dispositivo.")
+                } catch (_: Exception) {
+                    state(false, "Non riesco ad aprire Bring!.")
+                }
+            }
+        }
     }
 
     private fun askPermissionAndStart() {
@@ -108,6 +136,7 @@ class MainActivity : Activity() {
         listening = true
         consecutiveServerErrors = 0
         state(true, "Ti ascolto… pronuncia i prodotti. Puoi fare pause tra i gruppi.")
+        armSilenceStop()
         listenAgain()
     }
 
@@ -120,19 +149,21 @@ class MainActivity : Activity() {
                 recognizer = SpeechRecognizer.createSpeechRecognizer(this)
                 recognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(p: Bundle?) {}
-                override fun onBeginningOfSpeech() {}
+                override fun onBeginningOfSpeech() { armSilenceStop() }
                 override fun onRmsChanged(v: Float) {}
                 override fun onBufferReceived(b: ByteArray?) {}
                 override fun onEndOfSpeech() {}
                 override fun onEvent(t: Int, p: Bundle?) {}
                 override fun onPartialResults(p: Bundle?) {
                     val text = p?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                    if (text.isNotBlank()) armSilenceStop()
                     val safe = JSONObject.quote(text)
                     web.post { web.evaluateJavascript("window.onNativeSpeechPartialText($safe)", null) }
                 }
                 override fun onResults(b: Bundle?) {
                     val text = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
                     if (text.isNotBlank()) {
+                        armSilenceStop()
                         consecutiveServerErrors = 0
                         val safe = JSONObject.quote(text)
                         web.post { web.evaluateJavascript("window.onNativeSpeechText($safe)", null) }
@@ -197,6 +228,7 @@ class MainActivity : Activity() {
     }
     private fun stopSpeech() {
         listening = false
+        silenceHandler.removeCallbacks(silenceStopRunnable)
         destroySpeech()
         state(false, "Dettatura terminata. Premi «Prepara i prodotti».")
     }
