@@ -62,12 +62,12 @@ class MainActivity : Activity() {
               ['parse','send'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('click',()=>AndroidSpeech.stop(),true);});
               window.onNativeSpeechPartialText=t=>{
                 partial=(t||'').trim();
-                showText(committed+(partial?(committed.trim()?'\\n':'')+partial:''));
+                showText(committed+(partial?(committed.trim()?'\n':'')+partial:''));
               };
               window.onNativeSpeechText=t=>{
                 t=(t||'').trim();
                 partial='';
-                if(t) committed+=(committed.trim()?'\\n':'')+t;
+                if(t) committed+=(committed.trim()?'\n':'')+t;
                 showText(committed);
               };
               window.onNativeSpeechState=(active,msg)=>{
