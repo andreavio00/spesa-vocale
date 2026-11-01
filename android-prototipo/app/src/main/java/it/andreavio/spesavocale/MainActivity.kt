@@ -173,11 +173,27 @@ class MainActivity : FragmentActivity() {
             .setMessage("La password sarà cifrata sul telefono e potrà essere recuperata solo dopo l'autenticazione biometrica.")
             .setView(container)
             .setNegativeButton("Annulla", null)
+            .setNeutralButton(if (prefs.contains("bring_password_data")) "Elimina password" else "Chiudi", null)
             .setPositiveButton("Proteggi con impronta") { _, _ ->
                 val password = field.text.toString()
                 field.setText("")
                 savePasswordSecure(account, password)
-            }.show()
+            }.create().also { dialog ->
+                dialog.setOnShowListener {
+                    dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                        if (prefs.contains("bring_password_data")) {
+                            prefs.edit().remove("bring_password_iv").remove("bring_password_data").apply()
+                            try {
+                                KeyStore.getInstance("AndroidKeyStore").apply { load(null); deleteEntry("spesa_vocale_bring_key") }
+                            } catch (_: Exception) {}
+                            web.evaluateJavascript("window.onNativeCredentialsRemoved && window.onNativeCredentialsRemoved()", null)
+                            Toast.makeText(this, "Password salvata eliminata.", Toast.LENGTH_SHORT).show()
+                        }
+                        dialog.dismiss()
+                    }
+                }
+                dialog.show()
+            }
     }
 
     private fun showSettings() {
@@ -316,6 +332,7 @@ class MainActivity : FragmentActivity() {
                 if(form&&form.requestSubmit)form.requestSubmit();else if(form)form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
               };
               window.onNativeCredentialsSaved=()=>{const bio=document.getElementById('biometricLogin');if(bio)bio.style.display='block';};
+              window.onNativeCredentialsRemoved=()=>{const bio=document.getElementById('biometricLogin');if(bio)bio.style.display='none';};
               let committed = f.value || '';
               let partial = '';
               const showText = value => { f.value=value; f.dispatchEvent(new Event('input',{bubbles:true})); };
