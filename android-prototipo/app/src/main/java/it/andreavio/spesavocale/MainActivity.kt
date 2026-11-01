@@ -114,11 +114,11 @@ class MainActivity : Activity() {
     private fun listenAgain() {
         if (!listening) return
         try {
-            recognizer?.destroy()
-            // Usa il servizio vocale predefinito di Android: la disponibilità
-            // del motore offline non garantisce che il modello italiano sia pronto.
-            recognizer = SpeechRecognizer.createSpeechRecognizer(this)
-            recognizer?.setRecognitionListener(object : RecognitionListener {
+            // Crea il recognizer una sola volta e riutilizzalo dopo ogni risultato.
+            // Distruggerlo e ricrearlo a ogni frase può far cadere il servizio Android.
+            if (recognizer == null) {
+                recognizer = SpeechRecognizer.createSpeechRecognizer(this)
+                recognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(p: Bundle?) {}
                 override fun onBeginningOfSpeech() {}
                 override fun onRmsChanged(v: Float) {}
@@ -137,7 +137,7 @@ class MainActivity : Activity() {
                         val safe = JSONObject.quote(text)
                         web.post { web.evaluateJavascript("window.onNativeSpeechText($safe)", null) }
                     }
-                    if (listening) web.postDelayed({ listenAgain() }, 350)
+                    if (listening) web.postDelayed({ listenAgain() }, 250)
                 }
                 override fun onError(error: Int) {
                     web.post { web.evaluateJavascript("window.onNativeSpeechPartialText('')", null) }
@@ -150,12 +150,12 @@ class MainActivity : Activity() {
                             consecutiveServerErrors++
                             // Ricrea il servizio con una pausa crescente, senza
                             // lasciare il pulsante in uno stato apparentemente attivo.
-                            val delay = (700L * consecutiveServerErrors.coerceAtMost(4))
-                            state(true, "Riconnessione del riconoscimento vocale…")
-                            if (consecutiveServerErrors >= 5) {
+                            val delay = 1500L
+                            state(true, "Il servizio vocale si è disconnesso: nuovo tentativo…")
+                            destroySpeech()
+                            if (consecutiveServerErrors >= 3) {
                                 listening = false
-                                destroySpeech()
-                                state(false, "Il servizio vocale Android continua a disconnettersi. Verifica il servizio di riconoscimento vocale nelle impostazioni.")
+                                state(false, "Il servizio di riconoscimento vocale continua a disconnettersi. Non continuo a tentare: verifica il servizio vocale Android.")
                                 return
                             }
                             web.postDelayed({ if (listening) listenAgain() }, delay)
@@ -168,7 +168,8 @@ class MainActivity : Activity() {
                         state(false, "Riconoscimento interrotto (codice $error). Riprova.")
                     }
                 }
-            })
+                })
+            }
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "it-IT")
