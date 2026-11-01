@@ -50,18 +50,31 @@ class MainActivity : FragmentActivity() {
     private val silenceHandler = Handler(Looper.getMainLooper())
     private val prefs: SharedPreferences by lazy { getSharedPreferences("spesa_vocale_settings", Context.MODE_PRIVATE) }
     private val appUrl = "https://andreavio00.github.io/spesa-vocale/"
-    private val silenceStopRunnable = Runnable {
-        if (listening) {
-            listening = false
-            destroySpeech()
-            state(false, "Dettatura arrestata dopo ${prefs.getInt("silence_stop_seconds", 4)} secondi di silenzio.")
+    private var lastSpeechActivityAt = 0L
+    private val silenceStopRunnable = object : Runnable {
+        override fun run() {
+            if (!listening) return
+            val timeout = prefs.getInt("silence_stop_seconds", 4).coerceIn(2, 10) * 1000L
+            val elapsed = android.os.SystemClock.elapsedRealtime() - lastSpeechActivityAt
+            if (elapsed >= timeout) {
+                listening = false
+                silenceHandler.removeCallbacks(this)
+                destroySpeech()
+                state(false, "Dettatura arrestata dopo ${timeout / 1000} secondi di silenzio.")
+            } else {
+                silenceHandler.postDelayed(this, (timeout - elapsed).coerceAtMost(250L))
+            }
         }
     }
 
+    private fun noteSpeechActivity() {
+        lastSpeechActivityAt = android.os.SystemClock.elapsedRealtime()
+    }
+
     private fun armSilenceStop() {
+        noteSpeechActivity()
         silenceHandler.removeCallbacks(silenceStopRunnable)
-        val seconds = prefs.getInt("silence_stop_seconds", 4).coerceIn(2, 10)
-        silenceHandler.postDelayed(silenceStopRunnable, seconds * 1000L)
+        silenceHandler.postDelayed(silenceStopRunnable, 250L)
     }
 
     private fun biometricPrompt(onSuccess: (BiometricPrompt.AuthenticationResult) -> Unit, onError: (String) -> Unit, cipher: Cipher? = null) {
@@ -367,7 +380,7 @@ class MainActivity : FragmentActivity() {
         @JavascriptInterface fun openSettings() { runOnUiThread { showSettings() } }
         @JavascriptInterface fun hasSavedCredentials(): Boolean = prefs.contains("bring_password_data") && prefs.contains("bring_password_iv")
         @JavascriptInterface fun getAccountId(): String = prefs.getString("bring_account_id", "").orEmpty()
-        @JavascriptInterface fun connectWithBiometric() { runOnUiThread { connectWithBiometric() } }
+        @JavascriptInterface fun connectWithBiometric() { runOnUiThread { this@MainActivity.connectWithBiometric() } }
         @JavascriptInterface fun openBring() {
             runOnUiThread {
                 try {
@@ -402,8 +415,10 @@ class MainActivity : FragmentActivity() {
         }
         listening = true
         consecutiveServerErrors = 0
+        noteSpeechActivity()
+        silenceHandler.removeCallbacks(silenceStopRunnable)
+        silenceHandler.postDelayed(silenceStopRunnable, 250L)
         state(true, "Ti ascolto… pronuncia i prodotti. Puoi fare pause tra i gruppi.")
-        armSilenceStop()
         listenAgain()
     }
 
@@ -417,7 +432,7 @@ class MainActivity : FragmentActivity() {
                 recognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(p: Bundle?) {}
                 override fun onBeginningOfSpeech() { armSilenceStop() }
-                override fun onRmsChanged(v: Float) {}
+                override fun onRmsChanged(v: Float) { if (v > 2.5f) armSilenceStop() }
                 override fun onBufferReceived(b: ByteArray?) {}
                 override fun onEndOfSpeech() {}
                 override fun onEvent(t: Int, p: Bundle?) {}
