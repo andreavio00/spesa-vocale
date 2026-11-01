@@ -19,6 +19,7 @@ class MainActivity : Activity() {
     private lateinit var web: WebView
     private var recognizer: SpeechRecognizer? = null
     private var listening = false
+    private var consecutiveServerErrors = 0
     private val appUrl = "https://andreavio00.github.io/spesa-vocale/"
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -105,6 +106,7 @@ class MainActivity : Activity() {
             return
         }
         listening = true
+        consecutiveServerErrors = 0
         state(true, "Ti ascolto… pronuncia i prodotti. Puoi fare pause tra i gruppi.")
         listenAgain()
     }
@@ -113,9 +115,9 @@ class MainActivity : Activity() {
         if (!listening) return
         try {
             recognizer?.destroy()
-            recognizer = if (android.os.Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(this))
-                SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
-            else SpeechRecognizer.createSpeechRecognizer(this)
+            // Usa il servizio vocale predefinito di Android: la disponibilità
+            // del motore offline non garantisce che il modello italiano sia pronto.
+            recognizer = SpeechRecognizer.createSpeechRecognizer(this)
             recognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(p: Bundle?) {}
                 override fun onBeginningOfSpeech() {}
@@ -131,16 +133,35 @@ class MainActivity : Activity() {
                 override fun onResults(b: Bundle?) {
                     val text = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
                     if (text.isNotBlank()) {
+                        consecutiveServerErrors = 0
                         val safe = JSONObject.quote(text)
                         web.post { web.evaluateJavascript("window.onNativeSpeechText($safe)", null) }
                     }
-                    if (listening) web.postDelayed({ listenAgain() }, 250)
+                    if (listening) web.postDelayed({ listenAgain() }, 350)
                 }
                 override fun onError(error: Int) {
                     web.post { web.evaluateJavascript("window.onNativeSpeechPartialText('')", null) }
                     if (!listening) return
-                    if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
-                        web.postDelayed({ listenAgain() }, 300)
+                    if (error == SpeechRecognizer.ERROR_NO_MATCH ||
+                        error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ||
+                        error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
+                        error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED) {
+                        if (error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED) {
+                            consecutiveServerErrors++
+                            // Ricrea il servizio con una pausa crescente, senza
+                            // lasciare il pulsante in uno stato apparentemente attivo.
+                            val delay = (700L * consecutiveServerErrors.coerceAtMost(4))
+                            state(true, "Riconnessione del riconoscimento vocale…")
+                            if (consecutiveServerErrors >= 5) {
+                                listening = false
+                                destroySpeech()
+                                state(false, "Il servizio vocale Android continua a disconnettersi. Verifica il servizio di riconoscimento vocale nelle impostazioni.")
+                                return
+                            }
+                            web.postDelayed({ if (listening) listenAgain() }, delay)
+                        } else {
+                            web.postDelayed({ if (listening) listenAgain() }, 400)
+                        }
                     } else {
                         listening = false
                         destroySpeech()
@@ -153,7 +174,8 @@ class MainActivity : Activity() {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "it-IT")
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                // Non forzare la modalità offline: alcuni servizi dichiarano
+                // il supporto on-device ma si disconnettono con il modello it-IT.
                 // Una pausa breve chiude il prodotto corrente; le parole pronunciate
                 // prima della pausa restano nella stessa frase (es. "vino rosso").
                 putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 900L)
