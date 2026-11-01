@@ -10,6 +10,7 @@ import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -43,6 +44,7 @@ class MainActivity : Activity() {
         setContentView(web)
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
+        web.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
         web.addJavascriptInterface(Bridge(), "AndroidSpeech")
         web.webChromeClient = WebChromeClient()
         web.webViewClient = object : WebViewClient() {
