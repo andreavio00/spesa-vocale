@@ -393,6 +393,10 @@ class MainActivity : FragmentActivity() {
                         if (selectedList.isNotEmpty()) {
                             launchIntent.putExtra("listUuid", selectedList)
                         }
+                        // Chiede ad Android di ripartire dall'attività iniziale di Bring!,
+                        // eliminando le schermate precedenti dal relativo task se già aperto.
+                        // Non termina forzatamente il processo Bring!: azzera lo stack UI.
+                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
                         startActivity(launchIntent)
                         state(false, if (selectedList.isNotEmpty())
                             "Bring! aperta. Ho passato anche la lista selezionata; verifica se viene aperta direttamente."
