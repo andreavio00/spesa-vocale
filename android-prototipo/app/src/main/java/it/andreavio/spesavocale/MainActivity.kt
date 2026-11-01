@@ -351,7 +351,7 @@ class MainActivity : FragmentActivity() {
               const showText = value => { f.value=value; f.dispatchEvent(new Event('input',{bubbles:true})); };
               b.onclick=()=>AndroidSpeech.toggle();
               const openBring=document.getElementById('openBring');
-              if(openBring)openBring.addEventListener('click',e=>{e.preventDefault();AndroidSpeech.openBring();});
+              if(openBring)openBring.addEventListener('click',e=>{e.preventDefault();const selected=document.getElementById('listSelect');AndroidSpeech.openBring(selected?selected.value:'');});
               ['parse','send'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('click',()=>AndroidSpeech.stop(),true);});
               window.onNativeSpeechPartialText=t=>{
                 partial=(t||'').trim();
@@ -381,12 +381,23 @@ class MainActivity : FragmentActivity() {
         @JavascriptInterface fun hasSavedCredentials(): Boolean = prefs.contains("bring_password_data") && prefs.contains("bring_password_iv")
         @JavascriptInterface fun getAccountId(): String = prefs.getString("bring_account_id", "").orEmpty()
         @JavascriptInterface fun connectWithBiometric() { runOnUiThread { this@MainActivity.connectWithBiometric() } }
-        @JavascriptInterface fun openBring() {
+        @JavascriptInterface fun openBring(listUuid: String?) {
             runOnUiThread {
                 try {
                     val launchIntent = packageManager.getLaunchIntentForPackage("ch.publisheria.bring")
-                    if (launchIntent != null) startActivity(launchIntent)
-                    else state(false, "Bring! non risulta installata su questo dispositivo.")
+                    if (launchIntent != null) {
+                        // Tentativo sperimentale: passiamo alla schermata iniziale
+                        // l'UUID della lista scelta nella Webapp. Bring! potrebbe ignorare
+                        // questo extra se non prevede un ingresso pubblico per le liste.
+                        val selectedList = listUuid?.trim().orEmpty()
+                        if (selectedList.isNotEmpty()) {
+                            launchIntent.putExtra("listUuid", selectedList)
+                        }
+                        startActivity(launchIntent)
+                        state(false, if (selectedList.isNotEmpty())
+                            "Bring! aperta. Ho passato anche la lista selezionata; verifica se viene aperta direttamente."
+                            else "Bring! aperta.")
+                    } else state(false, "Bring! non risulta installata su questo dispositivo.")
                 } catch (_: Exception) {
                     state(false, "Non riesco ad aprire Bring!.")
                 }
