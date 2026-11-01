@@ -431,8 +431,10 @@ class MainActivity : FragmentActivity() {
                 recognizer = SpeechRecognizer.createSpeechRecognizer(this)
                 recognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(p: Bundle?) {}
+                // Il volume rilevato può comprendere i bip del servizio e rumori ambientali:
+                // non deve azzerare il timer del silenzio.
                 override fun onBeginningOfSpeech() { armSilenceStop() }
-                override fun onRmsChanged(v: Float) { if (v > 2.5f) armSilenceStop() }
+                override fun onRmsChanged(v: Float) {}
                 override fun onBufferReceived(b: ByteArray?) {}
                 override fun onEndOfSpeech() {}
                 override fun onEvent(t: Int, p: Bundle?) {}
@@ -445,7 +447,6 @@ class MainActivity : FragmentActivity() {
                 override fun onResults(b: Bundle?) {
                     val text = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
                     if (text.isNotBlank()) {
-                        armSilenceStop()
                         consecutiveServerErrors = 0
                         val safe = JSONObject.quote(text)
                         web.post { web.evaluateJavascript("window.onNativeSpeechText($safe)", null) }
